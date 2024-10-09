@@ -1,3 +1,45 @@
+# CoreDNS tailscale gateway
+
+In a scenario, when you fully embraced Tailscale and all machines have it installed, this serves a similar purpose to an edge router in e.g. home network:
+
+- a DNS server for both internal and external networks resolving to different addresses based on request origin
+- a forwarding proxy (router would be on L3, we are running on L4)
+
+## Changes to CoreDNS
+
+Changes:
+- added a **mandatory** `tailscale` plugin which connects to tailscale in-process
+- added `tsbind` plugin which makes the DNS server listen only on Tailscale IP addresses
+- added `tsproxy` plugin which proxies TCP and UDP connections from outside into your tailnet
+
+## Example Corefile
+
+```
+. {
+    tailscale coredns-1
+    tsproxy {
+        tcp 10080 -> http-server 80
+        tcp 10443 -> http-server 443
+        udp 10443 -> http-server 443
+        tcp 11022 -> bastion 22
+    }
+    tsbind
+
+
+    forward . tls://1.1.1.1 tls://1.0.0.1 {
+        tls_servername cloudflare-dns.com
+        health_check 5s
+    }
+    cache 30
+
+    errors
+    log
+}
+```
+
+
+---
+
 [![CoreDNS](https://coredns.io/images/CoreDNS_Colour_Horizontal.png)](https://coredns.io)
 
 [![Documentation](https://img.shields.io/badge/godoc-reference-blue.svg)](https://godoc.org/github.com/coredns/coredns)
