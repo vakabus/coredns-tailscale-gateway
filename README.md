@@ -11,31 +11,73 @@ Changes:
 - added a **mandatory** `tailscale` plugin which connects to tailscale in-process
 - added `tsbind` plugin which makes the DNS server listen only on Tailscale IP addresses
 - added `tsproxy` plugin which proxies TCP and UDP connections from outside into your tailnet
+- added `tsnames` plugin which is vendored [coredns-tailscale](https://github.com/cfunkhouser/coredns-tailscale) plugin modified to work with the global tailscale connection
 
-## Example Corefile
+## Example setup
+
+The network in this example consists of:
+
+- `gateway.example.org` - a VPS server where this CoreDNS mod runs, acts as a gateway to the Tailscale network and also as an internal DNS server
+- `hub.example.org` - home server without public IP acting as the central point of the infrastructure - HTTP(S) reverse proxy, SSH bastion, ... For this example, it handles requests to `https://service.example.org`
+- `user.example.org` - an end-user machine
+
+The CoreDNS server runs on `gateway.example.org` with this config:
 
 ```
 . {
-    tailscale coredns-1
-    tsproxy {
-        tcp 10080 -> http-server 80
-        tcp 10443 -> http-server 443
-        udp 10443 -> http-server 443
-        tcp 11022 -> bastion 22
-    }
+    # listen only on tailscale
     tsbind
 
+    # resolve tailscale hostnames
+    tsnames example.org {
+        fallthrough
+    }
 
+    # if the name is not a tailscale hostname, just forward the request
     forward . tls://1.1.1.1 tls://1.0.0.1 {
         tls_servername cloudflare-dns.com
         health_check 5s
     }
-    cache 30
 
+    # rewrite CNAME answers with the edge router address to contain
+    # the internal tailnet address of the load balancer
+    rewrite stop cname exact gateway.example.org. hub.example.org.
+
+    # cache responses for 5min = 300sec
+    cache 300
+
+    # logging
     errors
     log
 }
+
+global.options {
+    # [mandatory] initialize tailscale, if not running locally, starts with the given hostname
+    tailscale coredns
+
+    # start L4 proxy from internet to inside of the tailnet
+    tsproxy {
+        tcp 80 -> hub.example.org 80
+        tcp 443 -> hub.example.org 443
+        tcp 2222 -> hub.example.org 22
+        udp 443 -> hub.example.org 443
+    }
+
+    # prevent this server from receiving anything
+    bind 127.53.53.53
+}
 ```
+
+Globally on the internet, the DNS is configured to answer:
+
+- `example.org` and `www.example.org` -> external website hosting 
+- wildcard `*.example.org` CNAME to `gateway.example.org`
+
+The effect of this setup is, that the machine `user.example.org` can access `https://service.example.org`
+- directly when connected over Tailscale, possibly over the local network
+- through the `gateway.example.org` proxy over the internet when it's not connected to Tailscale
+
+And if needed, anyone can also SSH into the internal network bastion host without using Tailscale, therefore making the homelab resources accessible from e.g. machines connected to work Tailscale network
 
 
 ---
