@@ -73,7 +73,14 @@ func (proxy *TcpProxy) handleConection(downstream net.Conn) {
 
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(4*time.Second))
 	defer cancel()
-	upstream, err := proxy.ts.Dial(ctx, "tcp", proxy.dst)
+
+	var upstream net.Conn
+	var err error
+	if proxy.ts == nil {
+		upstream, err = net.Dial("tcp", proxy.dst)
+	} else {
+		upstream, err = proxy.ts.Dial(ctx, "tcp", proxy.dst)
+	}
 	if err != nil {
 		tcpLog.Errorf("error dialing remote addr: %v", err)
 		return

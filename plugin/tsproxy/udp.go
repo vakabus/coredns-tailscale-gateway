@@ -89,7 +89,13 @@ func (proxy *UdpProxy) send(m msg) {
 	up, ok := proxy.upstream[m.addr.String()]
 
 	if !ok {
-		conn, err := proxy.ts.Dial(context.Background(), "udp", proxy.dst)
+		var conn net.Conn
+		var err error
+		if proxy.ts == nil {
+			conn, err = net.Dial("udp", proxy.dst)
+		} else {
+			conn, err = proxy.ts.Dial(context.Background(), "udp", proxy.dst)
+		}
 		if err != nil {
 			udpLog.Error("udp dial error", err)
 			return
