@@ -9,21 +9,17 @@ import (
 
 	"github.com/coredns/coredns/plugin"
 	"github.com/coredns/coredns/plugin/pkg/fall"
-	"tailscale.com/client/tailscale"
 	"tailscale.com/ipn"
 	"tailscale.com/tailcfg"
-	"tailscale.com/tsnet"
 	"tailscale.com/types/netmap"
+
+	ts "github.com/coredns/coredns/plugin/tailscale"
 )
 
 type Tailscale struct {
 	next plugin.Handler
 	zone string
 	fall fall.F
-
-	authkey string
-	srv     *tsnet.Server
-	lc      *tailscale.LocalClient
 
 	mu      sync.RWMutex
 	entries map[string]map[string][]string
@@ -38,25 +34,8 @@ func (t *Tailscale) Name() string { return "tailscale" }
 // If t.authkey is non-empty, this function uses that key to connect to the Tailnet using a tsnet server
 // instead of connecting to the local tailscaled instance.
 func (t *Tailscale) start() error {
-	if t.authkey != "" {
-		// authkey was provided, so startup a local tsnet server
-		t.srv = &tsnet.Server{
-			Hostname:     "coredns",
-			AuthKey:      t.authkey,
-			Logf:         log.Debugf,
-			RunWebClient: true,
-		}
-		err := t.srv.Start()
-		if err != nil {
-			return err
-		}
-		t.lc, err = t.srv.LocalClient()
-		if err != nil {
-			return err
-		}
-	} else {
-		// zero value LocalClient will connect to local tailscaled
-		t.lc = &tailscale.LocalClient{}
+	if ts.Tailscale == nil {
+		return fmt.Errorf("tailscale not initialized, can't use 'tsnames' plugin")
 	}
 
 	go t.watchIPNBus()
@@ -67,7 +46,7 @@ func (t *Tailscale) start() error {
 // This function does not return. If it is unable to read from the IPN Bus, it will continue to retry.
 func (t *Tailscale) watchIPNBus() {
 	for {
-		watcher, err := t.lc.WatchIPNBus(context.Background(), ipn.NotifyInitialNetMap)
+		watcher, err := ts.Tailscale.Client.WatchIPNBus(context.Background(), ipn.NotifyInitialNetMap)
 		if err != nil {
 			log.Info("unable to read from Tailscale event bus, retrying in 1 minute")
 			time.Sleep(1 * time.Minute)
