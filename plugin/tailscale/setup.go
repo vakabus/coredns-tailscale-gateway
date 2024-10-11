@@ -96,18 +96,19 @@ func start(hostname string) error {
 		if err != nil {
 			return err
 		}
+	}
 
-		for {
-			status, err := Tailscale.Client.Status(context.Background())
-			if err != nil {
-				return err
-			}
-			if status.BackendState == "Running" {
-				break
-			} else {
-				log.Info("waiting for tailscale")
-				time.Sleep(1 * time.Second)
-			}
+	// Wait for tailscale to properly initialize
+	for {
+		status, err := Tailscale.Client.Status(context.Background())
+		if err != nil {
+			return err
+		}
+		if status.BackendState == "Running" {
+			break
+		} else {
+			log.Info("waiting for tailscale")
+			time.Sleep(1 * time.Second)
 		}
 	}
 
