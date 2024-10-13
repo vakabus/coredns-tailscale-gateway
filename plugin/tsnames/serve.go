@@ -109,21 +109,26 @@ func (t *Tailscale) ServeDNS(ctx context.Context, w dns.ResponseWriter, r *dns.M
 
 	name := r.Question[0].Name
 
-	t.mu.RLock()
-	switch r.Question[0].Qtype {
-	case dns.TypeA:
-		log.Debug("Handling A record lookup")
-		t.resolveA(name, &msg)
+	parts := strings.SplitN(name, ".", 2)
 
-	case dns.TypeAAAA:
-		log.Debug("Handling AAAA record lookup")
-		t.resolveAAAA(name, &msg)
+	// Answer only in cases when the zone matches
+	if parts[1] == t.zone {
+		t.mu.RLock()
+		switch r.Question[0].Qtype {
+		case dns.TypeA:
+			log.Debug("Handling A record lookup")
+			t.resolveA(name, &msg)
 
-	case dns.TypeCNAME:
-		log.Debug("Handling CNAME record lookup")
-		t.resolveCNAME(name, &msg, TypeAll)
+		case dns.TypeAAAA:
+			log.Debug("Handling AAAA record lookup")
+			t.resolveAAAA(name, &msg)
+
+		case dns.TypeCNAME:
+			log.Debug("Handling CNAME record lookup")
+			t.resolveCNAME(name, &msg, TypeAll)
+		}
+		defer t.mu.RUnlock()
 	}
-	defer t.mu.RUnlock()
 
 	if len(msg.Answer) == 0 {
 		return t.handleNoRecords(ctx, w, r, &msg)
