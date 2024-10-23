@@ -54,7 +54,7 @@ func (proxy *TcpProxy) serve() {
 			// normal connection accepted, spawn a handler goroutine
 			proxy.wg.Add(1)
 			go func() {
-				proxy.handleConection(conn)
+				proxy.handleConnection(conn)
 				proxy.wg.Done()
 			}()
 			tcpLog.Debugf("incomming connection from '%s' will be proxied to '%s'", conn.LocalAddr().String(), conn.RemoteAddr().String())
@@ -68,7 +68,7 @@ func (proxy *TcpProxy) Close() {
 	proxy.wg.Wait()
 }
 
-func (proxy *TcpProxy) handleConection(downstream net.Conn) {
+func (proxy *TcpProxy) handleConnection(downstream net.Conn) {
 	defer downstream.Close()
 
 	ctx, cancel := context.WithDeadline(context.Background(), time.Now().Add(4*time.Second))
@@ -88,41 +88,44 @@ func (proxy *TcpProxy) handleConection(downstream net.Conn) {
 	defer upstream.Close()
 
 	// Start threads for copying both ways
-	closerChannel := make(chan struct{}, 2)
+	closerChannel := make(chan struct{})
+	defer close(closerChannel)
+
 	var iowg sync.WaitGroup
 	iowg.Add(2)
-	go copy(&iowg, closerChannel, true, upstream, downstream)
-	go copy(&iowg, closerChannel, false, downstream, upstream)
+	go copy(&iowg, closerChannel, upstream, downstream)
+	go copy(&iowg, closerChannel, downstream, upstream)
 
 	// Wait until one of:
-	//  - both threads end
+	//  - one thread ends
 	//  - a stop is requested from the outside
 	select {
 	case <-closerChannel:
-		// both connections ended, we just cleanly exit
 	case <-proxy.quit:
-		// a stop was requested from outside
-		// give the connection 10 more seconds to stop on it's own, then terminate
-
-		timer := time.NewTimer(10 * time.Second)
-		defer timer.Stop()
-		select {
-		case <-timer.C:
-			tcpLog.Infof("terminating proxy connection from %s", downstream.RemoteAddr())
-		case <-closerChannel:
-		}
 	}
 
+	// and then close the connection in 90 seconds also for the other side, if they don't close it themselves
+	now := time.Now()
+	downstream.SetDeadline(now.Add(90 * time.Second))
+	upstream.SetDeadline(now.Add(90 * time.Second))
+
+	// wait for both copy threads to finish
+	iowg.Wait()
 	tcpLog.Debugf("connection from %s closed", downstream.RemoteAddr().String())
 }
 
-func copy(wg *sync.WaitGroup, closer chan struct{}, shouldClose bool, dst io.Writer, src io.Reader) {
+func copy(wg *sync.WaitGroup, closer chan struct{}, dst io.Writer, src io.Reader) {
 	_, _ = io.Copy(dst, src)
 
-	wg.Done()
-	wg.Wait()
-	if shouldClose {
-		// a channel can be closed only once, that's why we have to check
-		close(closer)
+	// notify the parent that we should start closing
+	// Note that in TCP, the connection can be closed on one side and the data stream
+	// still continue from the other side.
+	select {
+	case closer <- struct{}{}:
+		// this is blocking, so it only works if someone is actively receiving
+	default:
+		// if there is nobody receiving, we can continue
 	}
+
+	wg.Done()
 }
