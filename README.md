@@ -77,7 +77,9 @@ The effect of this setup is, that the machine `user.example.org` can access `htt
 - directly when connected over Tailscale, possibly over the local network
 - through the `gateway.example.org` proxy over the internet when it's not connected to Tailscale
 
-And if needed, anyone can also SSH into the internal network bastion host without using Tailscale, therefore making the homelab resources accessible from e.g. machines connected to work Tailscale network
+And if needed, anyone can also SSH into the internal network bastion host without using Tailscale, therefore making the homelab resources accessible from e.g. machines connected to work Tailscale network.
+
+Note: If you want to make HTTP/3 work over the proxy, you have to increase Tailscale's MTU from the default 1280 to something higher. 1350 seems to work perfectly fine.
 
 
 ---
